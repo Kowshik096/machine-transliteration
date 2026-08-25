@@ -1,0 +1,6 @@
+﻿numpy
+torch
+wandb
+nltk
+tqdm
+jupyter

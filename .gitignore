@@ -1,0 +1,23 @@
+# Data (regenerable via convert_aksharantar.py)
+data/
+*.zip
+
+# Model artifacts
+*.pt
+*.ckpt
+checkpoints/
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Experiment tracking
+wandb/
+
+# Environment / secrets
+.env
+*.key
+
+# Kaggle download artifacts
+notebook*.ipynb

@@ -1,128 +1,128 @@
-# Sequence-to-Sequence Models (With and Without Attention)
+﻿# Machine Transliteration — Seq2Seq Models
 
-This report compares two encoder–decoder (seq2seq) models trained for transliteration using the Dakshina Hindi dataset. One model uses a **basic RNN encoder–decoder** (without attention), and the other uses the same architecture augmented with **Bahdanau (additive) attention**. We describe the data and preprocessing, detail each model’s architecture, training setup, and then compare their performance.
+Character-level encoder–decoder models for Hindi transliteration (Latin → Devanagari) using the [Dakshina dataset](https://github.com/google-research-datasets/dakshina).
 
----
+All models are implemented in **PyTorch**.
 
-##  Dataset and Preprocessing
+## Models
 
-We use the **Dakshina transliteration corpus (Hindi)**, which contains parallel text: Latin-script (Roman) transliterations and native-script Hindi. Each line in the dataset follows:
+| Notebook | Architecture |
+|----------|-------------|
+| `seq2seq_pytorch_without_attention.ipynb` | LSTM/GRU/RNN encoder–decoder (Lightning) |
+| `seq2seq_pytorch_attention.ipynb` | LSTM/GRU/RNN encoder–decoder + Bahdanau attention |
+| `seq2seq_transformer.ipynb` | Transformer encoder–decoder |
 
-```
-<Devangari_Hindi>\t<Latin_Transliteration>\t<attestation_flag>
-```
+All three notebooks use the same **Dakshina Hindi** train/dev/test splits for fair comparison.
 
-* The **native-script Hindi** is the target, and the **Latin transliteration** is the input.
-* Target sequences are wrapped with start (`\t`) and end (`\n`) tokens.
-* Vocabulary is constructed at the character level for both input and target.
-* Padding or one-hot encoding is used depending on the model.
+## Setup
 
-### No-Attention Preprocessing:
+### 1. Install dependencies
 
-* Uses one-hot encoded 3D arrays for encoder and decoder inputs.
-* Decoder targets are shifted by one timestep.
-
-### Attention Model Preprocessing:
-
-* Uses index-mapped padded sequences.
-* Character indices are later embedded via an `Embedding` layer.
-* Decoder outputs are one-hot encoded for loss calculation.
-
----
-
-##  Model Architectures
-
-###  Encoder–Decoder without Attention
-
-* Implements a **vanilla RNN-based seq2seq model**.
-* Recurrent cells can be **LSTM**, **GRU**, or **SimpleRNN** (configurable).
-* Encoder provides the final hidden states to initialize the decoder.
-* Decoder uses a dense layer to produce character probabilities.
-
-#### Simplified Structure:
-
-```python
-# Encoder
-x = OneHot(input) → RNN Layers → encoder_states
-
-# Decoder
-y = OneHot(target_input)
-for i in decoder_layers:
-    y = RNN(y, initial_state=encoder_states[i])
-decoder_output = Dense(y)
+```bash
+pip install -r requirements.txt
 ```
 
-* No dynamic context—decoder uses fixed encoder state only.
-* Uses beam search during inference for better predictions.
+For the RNN baseline notebook, you will also need PyTorch Lightning:
 
----
-
-###  Encoder–Decoder with Bahdanau Attention
-
-* Adds **Bahdanau attention** to dynamically focus on encoder outputs.
-* Uses embeddings instead of one-hot encodings.
-* At each decoding step, computes a weighted sum of encoder outputs.
-
-#### Simplified Structure:
-
-```python
-# Encoder
-x = Embedding(input) → RNN Layers → encoder_outputs
-
-# Decoder
-y = Embedding(target_input) → RNN Layers (init from encoder)
-attention_output = Attention([encoder_outputs, decoder_outputs])
-decoder_concat = Concatenate([decoder_outputs, attention_output])
-decoder_output = TimeDistributed(Dense(decoder_concat))
+```bash
+pip install pytorch-lightning
 ```
 
-* Enables better alignment between input and output.
-* Achieves better results for longer sequences or variable alignment patterns.
+### 2. Prepare the dataset
 
+**Option A — Convert the included Aksharantar zip (recommended):**
 
-## Evaluation and Metrics
+```bash
+python convert_aksharantar.py --zip aksharantar_sampled.zip --outdir data
+export DAKSHINA_DATA_DIR="$(pwd)/data"
+```
 
-* **Character-Level Accuracy** (Keras built-in).
-* **Word-Level Accuracy** via beam search decoding.
-  * Measures n-gram overlap with reference.
+**Option B — Download the original Dakshina dataset:**
 
+Download from https://github.com/google-research-datasets/dakshina and extract the Hindi lexicon files:
 
-## Conclusion
+```
+hi.translit.sampled.train.tsv
+hi.translit.sampled.dev.tsv
+hi.translit.sampled.test.tsv
+```
 
-We implemented and compared two seq2seq models on the Hindi transliteration task:
+Place them in a folder and set:
 
-* A **vanilla encoder–decoder**.
-* An **attention-based model** using Bahdanau attention.
+```bash
+export DAKSHINA_DATA_DIR="/path/to/dakshina/hi/lexicons"
+```
 
-The attention mechanism improves training and inference by allowing the model to focus on relevant input parts. This results in better convergence and higher transliteration accuracy, especially for longer or more complex sequences.
+Or edit `DATA_DIR` at the top of each notebook.
 
----
+### Colab
 
-## How to Run
+1. Upload the three TSV files to Google Drive.
+2. Default path: `/content/drive/MyDrive/dakshina_dataset_v1.0/dakshina_dataset_v1.0/hi/lexicons`
+3. Open a notebook, mount Drive when prompted, then run all cells.
 
-1. **Open Jupyter Notebooks:**
-   Use Google Colab or Jupyter Lab.
+### Kaggle
 
-2. **Install Dependencies:**
-
-   ```bash
-   pip install wandb
-   ```
-
-3. **Mount Google Drive (if required):**
-
+1. Upload the three TSV files as a Kaggle Dataset.
+2. Set:
    ```python
-   from google.colab import drive
-   drive.mount('/content/drive')
+   os.environ["DAKSHINA_DATA_DIR"] = "/kaggle/input/<your-dataset-name>"
    ```
+   before running the data-loading cell.
 
-4. **Run Preprocessing Cells:**
-   Prepares data and encodes sequences.
+### Local
 
-5. **Train the Model:**
+```bash
+export DAKSHINA_DATA_DIR="$HOME/data/dakshina/hi/lexicons"
+jupyter lab
+```
 
-6. **View Logs:**
-   Metrics like accuracy and word accuracy are logged via `wandb`.
+## Weights & Biases (Optional)
 
----
+The RNN baseline notebook uses W&B for sweep-based hyperparameter tuning. The attention and Transformer notebooks train directly without W&B. If you want sweep tuning for attention/Transformer, add your own sweep config.
 
+```bash
+wandb login
+```
+
+## Evaluation Metrics
+
+- **Word Accuracy** — exact match between predicted and reference Devanagari word.
+- **Character Accuracy** — position-wise character match.
+- **BLEU** — sentence-level BLEU with smoothing (RNN baseline notebook).
+
+## Results
+
+Full Dakshina Hindi test set (4,096 words), greedy decoding, best val-loss checkpoint, 20 epochs, batch size 128.
+
+| Model                    | Word Acc (%) | Char Acc (%) | BLEU   |
+|--------------------------|-------------|-------------|--------|
+| RNN baseline (PyTorch)   | 33.81       | 66.64       | 0.5649 |
+| BiRNN + Bahdanau attention | 35.52     | 70.03       | 0.5962 |
+| Transformer              | 34.33       | 67.41       | 0.5814 |
+
+Notes:
+- RNN baseline: GRU/LSTM/RNN sweep via W&B + PyTorch Lightning (best val_bleu **0.6166**: LSTM, 3 layers, emb 256, hidden 128, no-bidir, lr 1.35e-03, bs 64, tf 1.0).
+- Attention model: bidirectional LSTM encoder + Bahdanau additive-attention decoder, 1.36M params (`seq2seq_pytorch_attention_tested.ipynb`).
+- Transformer: d_model=128, 4 heads, 3 layers, 1.02M params (`seq2seq_transformer_tested.ipynb`).
+- BLEU computed with the same `nltk.translate.bleu_score.sentence_bleu` (method1 smoothing, per-word character list) as the baseline notebook; mid-table BLEU values recomputed locally on the stored checkpoints.
+- All runs use fixed random seed 42 for reproducibility.
+
+## Repository Structure
+
+```
+├── README.md
+├── SKILLS.md                                # concepts & interview prep notes
+├── requirements.txt
+├── convert_aksharantar.py                   # builds data/*.tsv from aksharantar_sampled.zip
+├── aksharantar_sampled.zip                  # raw multi-language data (not committed)
+├── data/                                    # generated Hindi TSVs (not committed)
+│   ├── hi.translit.sampled.train.tsv
+│   ├── hi.translit.sampled.dev.tsv
+│   └── hi.translit.sampled.test.tsv
+├── seq2seq_pytorch_without_attention.ipynb  # RNN baseline + W&B sweeps
+├── seq2seq_pytorch_attention.ipynb          # BiRNN encoder + Bahdanau attention
+├── seq2seq_transformer.ipynb                # Transformer encoder-decoder
+├── *_tested.ipynb                           # copies with stored outputs of full runs
+└── *.pt                                     # trained checkpoints (not committed)
+```
