@@ -1,13 +1,13 @@
 ﻿"""
-Convert Aksharantar Hindi CSVs to Dakshina-format TSVs.
+Convert Aksharantar CSVs to Dakshina-format TSVs.
 
 Usage:
-    python convert_aksharantar.py [--zip aksharantar_sampled.zip] [--outdir data]
+    python convert_aksharantar.py [--zip aksharantar_sampled.zip] [--outdir data] [--lang te]
 
-Produces:
-    data/hi.translit.sampled.train.tsv
-    data/hi.translit.sampled.dev.tsv
-    data/hi.translit.sampled.test.tsv
+Produces (example for --lang te):
+    data/te.translit.sampled.train.tsv
+    data/te.translit.sampled.dev.tsv
+    data/te.translit.sampled.test.tsv
 
 Each output line:  <native>\t<roman>\t1
 """
@@ -19,10 +19,9 @@ import os
 import zipfile
 
 
-SPLIT_MAP = {
-    "train": "hin_train.csv",
-    "dev": "hin_valid.csv",
-    "test": "hin_test.csv",
+LANG_MAP = {
+    "hi": {"train": "hin_train.csv", "dev": "hin_valid.csv", "test": "hin_test.csv"},
+    "te": {"train": "tel_train.csv", "dev": "tel_valid.csv", "test": "tel_test.csv"},
 }
 
 
@@ -56,14 +55,16 @@ def main():
     parser = argparse.ArgumentParser(description="Convert Aksharantar to Dakshina TSV format")
     parser.add_argument("--zip", default="aksharantar_sampled.zip", help="Path to aksharantar zip")
     parser.add_argument("--outdir", default="data", help="Output directory for TSVs")
+    parser.add_argument("--lang", default="te", choices=["hi", "te"], help="Language: hi (Hindi) or te (Telugu)")
     args = parser.parse_args()
 
     if not os.path.exists(args.zip):
         raise SystemExit(f"Zip file not found: {args.zip}")
 
-    for split, fname in SPLIT_MAP.items():
+    split_map = LANG_MAP[args.lang]
+    for split, fname in split_map.items():
         pairs = read_csv_from_zip(args.zip, fname)
-        outpath = os.path.join(args.outdir, f"hi.translit.sampled.{split}.tsv")
+        outpath = os.path.join(args.outdir, f"{args.lang}.translit.sampled.{split}.tsv")
         write_tsv(pairs, outpath)
         print(f"Wrote {len(pairs):>6} pairs -> {outpath}")
 
