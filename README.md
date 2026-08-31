@@ -95,8 +95,24 @@ wandb login
 
 ## Results
 
-### Telugu (current, Aksharantar te.* — 51,200 / 4,096 / 4,096)
-Fresh Telugu results will be filled after the new sweeps. The table below is the **previous Hindi run** (kept for reference until Telugu finishes).
+### Telugu (current, Aksharantar te.* — 51,200 / 4,096 / 4,096) — updated 2026-08-30 from Colab + Kaggle + Evals
+
+| Model                    | Greedy Word (%) | Greedy Char (%) | Beam 4 Word (%) | Beam 4 Char (%) | BLEU   |
+|--------------------------|----------------|----------------|----------------|----------------|--------|
+| RNN baseline (PyTorch)   | 45.80 (46.58*) | 80.35 (80.39*) | **47.29** | **81.25** | **0.6979** |
+| BiRNN + Bahdanau attention | 48.56 | 82.66 | **49.61** | 82.61 | — |
+| Transformer              | 43.38 | 79.23 | **43.87** | 79.36 | — |
+
+* 46.58/80.39 is Kaggle direct `seq2seq_pytorch_without_attention_tested.ipynb` test (beam 2); 45.80/80.35 is `seq2seq_evals.ipynb` greedy re-eval for fair comparison (same `baseline_best.ckpt`).
+
+**Notes (Telugu, 2026-08-30):**
+- RNN baseline: Kaggle sweep `tbkdzfq2` best `val_bleu 0.7365` → test `Word 0.4658 | Char 0.8039 | BLEU 0.6979` greedy (`seq2seq_pytorch_without_attention_tested.ipynb`, `baseline_best.ckpt` 6,946,773 bytes, `results.zip` 35,823,835 bytes, `lstm 2 layers, emb 64, hidden 256, no-bidir, dropout 0.2, lr 7.05e-03, bs 64, tf 0.7`). Evals re-run `seq2seq_evals_tested.ipynb:15` (468,583 bytes): greedy `0.4580/0.8035` → beam 4 `0.4729/0.8125`.
+- Attention: greedy `0.4856/0.8266` from `seq2seq_pytorch_attention_tested.ipynb:1617` (20 epochs, `attention_best.pt` 5,433,394 bytes, BiLSTM + Bahdanau `score=vᵀ tanh(W_enc·e + W_dec·h)`, ~1.36M params, best `Val 0.6229` @13/20) → beam 4 `0.4961/0.8261` from `seq2seq_evals_tested.ipynb:13`.
+- Transformer: greedy `0.4338/0.7923` from `seq2seq_transformer_tested.ipynb:1421` (20 epochs, `transformer_best.pt` 4,361,707 bytes, `d_model=128, 4 heads, 3 layers`, ~1.02M params, best `Val 0.2862` @20/20) → beam 4 `0.4387/0.7936` from `seq2seq_evals_tested.ipynb:14`.
+- Evals: `seq2seq_evals.ipynb` (17 cells, 44,870 bytes) → `seq2seq_evals_tested.ipynb` (468,583 bytes) runs all 3 models greedy vs beam 4 on `test 4096` + `plot_attention_heatmap` for 10 words (`Cell 16`). BLEU for attention/transformer not logged — will be recomputed via `nltk sentence_bleu`; Hindi BLEU recomputed locally.
+- All runs `SEED=42`.
+
+### Hindi (previous, Dakshina hi.* — 51,200 / 4,096 / 4,096) — for reference
 
 | Model                    | Word Acc (%) | Char Acc (%) | BLEU   |
 |--------------------------|-------------|-------------|--------|
@@ -108,10 +124,8 @@ Notes (Hindi):
 - RNN baseline: GRU/LSTM/RNN sweep via W&B + PyTorch Lightning (best val_bleu **0.6166**: LSTM, 3 layers, emb 256, hidden 128, no-bidir, lr 1.35e-03, bs 64, tf 1.0).
 - Attention model: bidirectional LSTM encoder + Bahdanau additive-attention decoder, 1.36M params (`seq2seq_pytorch_attention_tested.ipynb`).
 - Transformer: d_model=128, 4 heads, 3 layers, 1.02M params (`seq2seq_transformer_tested.ipynb`).
-- BLEU computed with the same `nltk.translate.bleu_score.sentence_bleu` (method1 smoothing, per-word character list) as the baseline notebook; mid-table BLEU values recomputed locally on the stored checkpoints.
-- All runs use fixed random seed 42 for reproducibility.
 
-> Telugu sweeps (6 runs each, beam search, heatmaps) are in progress — the table above will be replaced with `te.*` greedy + beam numbers once they finish.
+> All 3 Telugu runs + beam search (k=4) + heatmaps completed via `seq2seq_evals_tested.ipynb` — optional next is `FRESHER_GUIDE.md:77` dropout tuning / additional languages.
 
 ## Repository Structure
 

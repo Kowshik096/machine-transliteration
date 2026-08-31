@@ -21,3 +21,6 @@ wandb/
 
 # Kaggle download artifacts
 notebook*.ipynb
+
+# Archive (legacy notebooks)
+archive/
