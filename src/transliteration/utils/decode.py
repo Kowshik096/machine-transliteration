@@ -55,7 +55,10 @@ def beam_search_decode(
     beam_size: int = 4,
     max_len: int = 64,
 ) -> str:
-    """Beam search decoding - works with AttentionSeq2Seq."""
+    """Beam search decoding for RNN-based seq2seq models.
+
+    Works with both Seq2Seq (no attention) and AttentionSeq2Seq (Bahdanau attention).
+    """
     model.eval()
 
     if not hasattr(model, "encoder") or not hasattr(model, "decoder"):
@@ -67,7 +70,19 @@ def beam_search_decode(
     src_mask = (src_tensor == src_vocab.pad_idx)
 
     enc_outputs, enc_hidden = model.encoder(src_tensor, src_lens)
-    dec_hidden = model._init_decoder_hidden(enc_hidden)
+
+    # Handle different method names for initializing decoder hidden state
+    if hasattr(model, "_init_decoder_hidden"):
+        dec_hidden = model._init_decoder_hidden(enc_hidden)
+    elif hasattr(model, "_init_decoder_hidden_from_encoder"):
+        dec_hidden = model._init_decoder_hidden_from_encoder(enc_hidden)
+    else:
+        raise AttributeError(
+            "Model must have _init_decoder_hidden or _init_decoder_hidden_from_encoder"
+        )
+
+    # Determine if decoder expects attention context (has attention module)
+    has_attention = hasattr(model.decoder, "attention")
 
     beam = [(0.0, [tgt_vocab.sos_idx], dec_hidden)]
     completed = []
@@ -79,7 +94,11 @@ def beam_search_decode(
                 completed.append((score, tokens))
                 continue
             inp = torch.LongTensor([tokens[-1]]).to(device)
-            logits, new_hidden, _ = model.decoder(inp, hidden, enc_outputs, src_mask)
+            if has_attention:
+                decoder_out = model.decoder(inp, hidden, enc_outputs, src_mask)
+                logits, new_hidden, _ = decoder_out
+            else:
+                logits, new_hidden = model.decoder(inp, hidden)
             log_probs = torch.log_softmax(logits, dim=-1).squeeze(0)
             topk_logp, topk_idx = torch.topk(log_probs, beam_size)
             for k in range(beam_size):
