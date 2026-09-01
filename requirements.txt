@@ -1,7 +1,7 @@
-﻿numpy
-torch
-wandb
-nltk
-tqdm
-jupyter
-pytorch-lightning
+﻿numpy>=1.24,<2
+torch>=2.0,<3
+wandb>=0.15,<1
+nltk>=3.8,<4
+tqdm>=4.66,<5
+jupyter>=1.0,<2
+pytorch-lightning>=2.0,<3
