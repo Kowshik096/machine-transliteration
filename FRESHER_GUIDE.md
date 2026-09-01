@@ -6,12 +6,12 @@
 
 ## 1. What This Project Does (in Plain English)
 
-**Input:** romanized Hindi word typed in English letters — e.g. `namaste`
-**Output:** the same word in Devanagari script — `नमस्ते`
+**Input:** romanized Telugu word typed in English letters — e.g. `namaste`
+**Output:** the same word in Telugu script — `నమస్తే`
 
 This is called **transliteration** (not translation). The meaning stays the same, only the writing system changes. We treat it as a **character-level sequence-to-sequence** problem: the model reads one character at a time and writes one character at a time.
 
-**Dataset:** Dakshina Hindi — 51,200 train / 4,096 dev / 4,096 test word pairs. Each TSV line is `<Devanagari>\t<Roman>\t<1>`. The `data/` folder is built from `aksharantar_sampled.zip` via `convert_aksharantar.py`.
+**Dataset:** Aksharantar Telugu — 51,200 train / 4,096 dev / 4,096 test word pairs. Each TSV line is `<Telugu>\t<Roman>\t<1>`. The `data/` folder is built from `aksharantar_sampled.zip` via `convert_aksharantar.py --lang te`.
 
 ---
 
@@ -53,9 +53,8 @@ This is called **transliteration** (not translation). The meaning stays the same
 
 ### Phase 0 — Environment (30 min)
 ```bash
-pip install -r requirements.txt          # torch, wandb, nltk, tqdm
-# + pytorch-lightning (installed inside the baseline notebook)
-python convert_aksharantar.py --zip aksharantar_sampled.zip --outdir data
+pip install -r requirements.txt          # torch, wandb, nltk, tqdm, pytorch-lightning
+python convert_aksharantar.py --zip aksharantar_sampled.zip --outdir data --lang te
 ```
 
 ### Phase 1 — Read the Code (1–2 days)
@@ -66,8 +65,8 @@ python convert_aksharantar.py --zip aksharantar_sampled.zip --outdir data
 For each, trace the flow: **TSV → vocab → Dataset → DataLoader → model → training loop → greedy decode → metrics**.
 
 ### Phase 2 — Run the Easy Notebooks (1 day, GPU)
-- **Attention:** upload 3 TSVs from `data/` when prompted, Run All (20 epochs, ~1–2 h on T4). Expected: ~35% word / 70% char.
-- **Transformer:** same. Expected: ~34% word / 67% char.
+- **Attention:** upload 3 TSVs from `data/` when prompted, Run All (20 epochs, ~1–2 h on T4). Expected: ~48% word / 82% char.
+- **Transformer:** same. Expected: ~43% word / 79% char.
 - Both save `attention_best.pt` / `transformer_best.pt`.
 
 ### Phase 3 — Run the Sweep Notebook (1 day, Kaggle recommended)
@@ -85,7 +84,7 @@ For each, trace the flow: **TSV → vocab → Dataset → DataLoader → model �
 ### Data & Preprocessing
 
 **Q1. Why character-level and not subword (BPE)?**
-A. Hindi has 50+ Devanagari characters but word vocab is large and transliteration is highly character-aligned (e.g. `sh` → `श`). Character-level gives a tiny vocab (~30 Roman, ~68 Devanagari), fast training, and handles unseen words via composition.
+A. Telugu has 50+ script characters but word vocab is large and transliteration is highly character-aligned (e.g. `sh` → `శ`). Character-level gives a tiny vocab (~30 Roman, ~70 Telugu), fast training, and handles unseen words via composition.
 
 **Q2. How is the vocabulary built? What about unseen characters at test time?**
 A. Count every character in `train + dev`, add special tokens `<PAD> <SOS> <EOS> <UNK>`, then map each char to an index. Any char not in the vocab becomes `<UNK>` at test time.
@@ -177,7 +176,7 @@ A. The 3 TSVs are regenerable from `aksharantar_sampled.zip` via `convert_akshar
 1. Increase attention dropout 0.1 → 0.3 and re-train.
 2. Implement beam search (k=4) for the attention/transformer models and re-evaluate.
 3. Plot attention heatmaps for 10 test words.
-4. Train on another Dakshina language (Telugu, Gujarati) and compare.
+4. Train on another Aksharantar language (Hindi, Gujarati) and compare.
 5. Containerize with Docker or export to ONNX for deployment.
 
 ---

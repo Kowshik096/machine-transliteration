@@ -4,3 +4,4 @@ wandb
 nltk
 tqdm
 jupyter
+pytorch-lightning
