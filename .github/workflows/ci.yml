@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff pytest
+
+      - name: Lint with ruff
+        run: ruff check src/ scripts/ app.py convert_aksharantar.py
+
+      - name: Check imports
+        run: |
+          python -c "import transliteration; print('Package imports OK')"
+          python -c "from transliteration.models import Seq2Seq, AttentionSeq2Seq, TransformerSeq2Seq; print('Models OK')"
+          python -c "from transliteration.data import TransliterationDataset, build_vocab; print('Data OK')"
+          python -c "from transliteration.utils import word_accuracy, greedy_decode; print('Utils OK')"
+
+      - name: Run unit tests (placeholder)
+        run: |
+          # Add actual tests here when available
+          echo "No tests yet - add pytest tests in tests/"
+          # pytest tests/ -v

@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: Polisetty
+    given-names: Kowshik
+    orcid: "https://orcid.org/0000-0000-0000-0000"
+title: "Machine Transliteration — Character-level Seq2Seq Models for Telugu"
+version: 0.1.0
+date-released: 2026-09-01
+url: "https://github.com/kowshikpolisetty/Machine_transliteration"
+repository-code: "https://github.com/kowshikpolisetty/Machine_transliteration"
+license: MIT
+keywords:
+  - transliteration
+  - seq2seq
+  - attention
+  - transformer
+  - telugu
+  - aksharantar
+  - pytorch
+  - machine-learning
+  - nlp
