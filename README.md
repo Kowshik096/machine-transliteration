@@ -100,7 +100,7 @@ wandb login
 
 ## Evaluation Metrics
 
-- **Word Accuracy** — exact match between predicted and reference Devanagari word.
+- **Word Accuracy** — exact match between predicted and reference target-script word.
 - **Character Accuracy** — position-wise character match.
 - **BLEU** — sentence-level BLEU with smoothing (RNN baseline notebook).
 
@@ -120,7 +120,7 @@ wandb login
 - RNN baseline: Kaggle sweep `tbkdzfq2` best `val_bleu 0.7365` → test `Word 0.4658 | Char 0.8039 | BLEU 0.6979` greedy (`seq2seq_pytorch_without_attention_tested.ipynb`, `baseline_best.ckpt` 6,946,773 bytes, `results.zip` 35,823,835 bytes, `lstm 2 layers, emb 64, hidden 256, no-bidir, dropout 0.2, lr 7.05e-03, bs 64, tf 0.7`). Evals re-run `seq2seq_evals_tested.ipynb:15` (468,583 bytes): greedy `0.4580/0.8035` → beam 4 `0.4729/0.8125`.
 - Attention: greedy `0.4856/0.8266` from `seq2seq_pytorch_attention_tested.ipynb:1617` (20 epochs, `attention_best.pt` 5,433,394 bytes, BiLSTM + Bahdanau `score=vᵀ tanh(W_enc·e + W_dec·h)`, ~1.36M params, best `Val 0.6229` @13/20) → beam 4 `0.4961/0.8261` from `seq2seq_evals_tested.ipynb:13`.
 - Transformer: greedy `0.4338/0.7923` from `seq2seq_transformer_tested.ipynb:1421` (20 epochs, `transformer_best.pt` 4,361,707 bytes, `d_model=128, 4 heads, 3 layers`, ~1.02M params, best `Val 0.2862` @20/20) → beam 4 `0.4387/0.7936` from `seq2seq_evals_tested.ipynb:14`.
-- Evals: `seq2seq_evals.ipynb` (17 cells, 44,870 bytes) → `seq2seq_evals_tested.ipynb` (468,583 bytes) runs all 3 models greedy vs beam 4 on `test 4096` + `plot_attention_heatmap` for 10 words (`Cell 16`). BLEU for attention/transformer not logged — will be recomputed via `nltk sentence_bleu`; Hindi BLEU recomputed locally.
+- Evals: `seq2seq_evals.ipynb` (17 cells, 44,870 bytes) → `seq2seq_evals_tested.ipynb` (468,583 bytes) runs all 3 models greedy vs beam 4 on `test 4096` + `plot_attention_heatmap` for 10 words (`Cell 16`). BLEU for attention/transformer was not logged in those runs; recompute locally via `nltk sentence_bleu` if needed.
 - All runs `SEED=42`.
 
 ### Hindi (previous, Dakshina hi.* — 51,200 / 4,096 / 4,096) — for reference
