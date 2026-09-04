@@ -2,30 +2,38 @@
 """Evaluation script for transliteration models."""
 
 import argparse
-import os
+import sys
 from pathlib import Path
-from typing import List, Tuple
 
 import torch
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
-from transliteration.data.vocab import build_vocab, Vocab
+# Ensure non-ASCII output (e.g. Telugu script) is not mangled on cp1252 consoles.
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore
+    except Exception:
+        pass
+
 from transliteration.data.dataset import TransliterationDataset, collate_fn
-from transliteration.models.seq2seq import Seq2Seq, EncoderRNN, DecoderRNN
-from transliteration.models.attention import AttentionSeq2Seq, Encoder, Decoder
+from transliteration.data.vocab import Vocab, build_vocab
+from transliteration.models.attention import AttentionSeq2Seq, Decoder, Encoder
+from transliteration.models.presets import ARCH_PRESETS, get_preset
+from transliteration.models.seq2seq import DecoderRNN, EncoderRNN, Seq2Seq
 from transliteration.models.transformer import TransformerSeq2Seq
+from transliteration.utils.checkpoints import load_model_state_dict
+from transliteration.utils.decode import decode_with_fallback
 from transliteration.utils.metrics import compute_all_metrics
-from transliteration.utils.decode import greedy_decode, beam_search_decode
 
 
-def load_pairs_from_tsv(data_dir: Path, lang: str = "te") -> Tuple[List, List, List]:
-    splits = {"train": [], "dev": [], "test": []}
+def load_pairs_from_tsv(data_dir: Path, lang: str = "te") -> tuple[list, list, list]:
+    splits: dict[str, list] = {"train": [], "dev": [], "test": []}
     for split in ["train", "dev", "test"]:
         fname = data_dir / f"{lang}.translit.sampled.{split}.tsv"
         if not fname.exists():
             raise FileNotFoundError(f"Dataset file not found: {fname}")
-        with open(fname, "r", encoding="utf-8") as f:
+        with open(fname, encoding="utf-8") as f:
             for line in f:
                 parts = line.strip().split("\t")
                 if len(parts) >= 3:
@@ -36,59 +44,98 @@ def load_pairs_from_tsv(data_dir: Path, lang: str = "te") -> Tuple[List, List, L
 
 
 def build_model(args, src_vocab: Vocab, tgt_vocab: Vocab, device: torch.device):
+    preset = get_preset(args.arch)
+    emb_dim = args.emb_dim if args.emb_dim is not None else preset.get("emb_dim", 64)
+    hidden_dim = (
+        args.hidden_dim if args.hidden_dim is not None else preset.get("hidden_dim", 256)
+    )
+    d_model = args.d_model if args.d_model is not None else preset.get("d_model", 128)
+    nhead = args.nhead if args.nhead is not None else preset.get("nhead", 4)
+    num_layers = (
+        args.num_layers if args.num_layers is not None else preset.get("num_layers", 1)
+    )
+    dim_ff = args.dim_ff if args.dim_ff is not None else preset.get("dim_ff", 256)
+    cell_type = (
+        args.cell_type if args.cell_type is not None else preset.get("cell_type", "lstm")
+    )
+    bidirectional = (
+        args.bidirectional
+        if args.bidirectional is not None
+        else preset.get("bidirectional", True)
+    )
+    dropout = args.dropout if args.dropout is not None else preset.get("dropout", 0.1)
     if args.arch == "rnn":
-        encoder = EncoderRNN(
-            len(src_vocab), args.emb_dim, args.hidden_dim,
-            num_layers=args.num_layers, cell_type=args.cell_type,
-            bidirectional=args.bidirectional, dropout=args.dropout,
+        rnn_encoder = EncoderRNN(
+            len(src_vocab), emb_dim, hidden_dim,
+            num_layers=num_layers, cell_type=cell_type,
+            bidirectional=bidirectional, dropout=dropout,
         )
-        decoder = DecoderRNN(
-            len(tgt_vocab), args.emb_dim, args.hidden_dim,
-            num_layers=args.num_layers, cell_type=args.cell_type,
-            dropout=args.dropout,
+        rnn_decoder = DecoderRNN(
+            len(tgt_vocab), emb_dim, hidden_dim,
+            num_layers=num_layers, cell_type=cell_type,
+            dropout=dropout,
         )
-        model = Seq2Seq(encoder, decoder, device)
-    elif args.arch == "attention":
-        encoder = Encoder(
-            len(src_vocab), args.emb_dim, args.hidden_dim,
-            num_layers=args.num_layers, cell_type=args.cell_type,
-            bidirectional=True, dropout=args.dropout,
+        return Seq2Seq(rnn_encoder, rnn_decoder, device).to(device)
+    if args.arch == "attention":
+        attn_encoder = Encoder(
+            len(src_vocab), emb_dim, hidden_dim,
+            num_layers=num_layers, cell_type=cell_type,
+            bidirectional=True, dropout=dropout,
         )
-        decoder = Decoder(
-            len(tgt_vocab), args.emb_dim, args.hidden_dim,
-            enc_dim=args.hidden_dim, num_layers=args.num_layers,
-            cell_type=args.cell_type, dropout=args.dropout,
+        attn_decoder = Decoder(
+            len(tgt_vocab), emb_dim, hidden_dim,
+            enc_dim=hidden_dim, num_layers=num_layers,
+            cell_type=cell_type, dropout=dropout,
         )
-        model = AttentionSeq2Seq(encoder, decoder, src_pad_idx=src_vocab.pad_idx)
-    elif args.arch == "transformer":
-        model = TransformerSeq2Seq(
+        return AttentionSeq2Seq(
+            attn_encoder, attn_decoder, src_pad_idx=src_vocab.pad_idx
+        ).to(device)
+    if args.arch == "transformer":
+        return TransformerSeq2Seq(
             len(src_vocab), len(tgt_vocab),
-            d_model=args.d_model, nhead=args.nhead,
-            num_layers=args.num_layers, dim_ff=args.dim_ff,
-            dropout=args.dropout, pad_idx=src_vocab.pad_idx,
-        )
-    else:
-        raise ValueError(f"Unknown architecture: {args.arch}")
-    return model.to(device)
+            d_model=d_model, nhead=nhead,
+            num_layers=num_layers, dim_ff=dim_ff,
+            dropout=dropout, pad_idx=src_vocab.pad_idx,
+        ).to(device)
+    raise ValueError(
+        f"Unknown architecture: {args.arch}. Expected one of {sorted(ARCH_PRESETS)}."
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate transliteration model")
-    parser.add_argument("--checkpoint", type=str, required=True, help="Path to model checkpoint (.pt)")
-    parser.add_argument("--data-dir", type=str, default="data", help="Data directory with TSV files")
-    parser.add_argument("--lang", type=str, default="te", choices=["te", "hi"], help="Language code")
-    parser.add_argument("--arch", type=str, default="attention", choices=["rnn", "attention", "transformer"])
+    parser.add_argument(
+        "--checkpoint", type=str, required=True, help="Path to model checkpoint (.pt)"
+    )
+    parser.add_argument(
+        "--data-dir", type=str, default="data", help="Data directory with TSV files"
+    )
+    parser.add_argument(
+        "--lang", type=str, default="te", choices=["te", "hi"], help="Language code"
+    )
+    parser.add_argument(
+        "--arch", type=str, default="attention",
+        choices=["rnn", "attention", "transformer"],
+    )
     parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--emb-dim", type=int, default=64)
-    parser.add_argument("--hidden-dim", type=int, default=256)
-    parser.add_argument("--d-model", type=int, default=128)
-    parser.add_argument("--nhead", type=int, default=4)
-    parser.add_argument("--num-layers", type=int, default=1)
-    parser.add_argument("--dim-ff", type=int, default=256)
-    parser.add_argument("--cell-type", type=str, default="lstm", choices=["lstm", "gru", "rnn"])
-    parser.add_argument("--bidirectional", action="store_true", default=True)
-    parser.add_argument("--dropout", type=float, default=0.1)
-    parser.add_argument("--beam-size", type=int, default=4, help="Beam size (1=greedy)")
+    # Arch-specific hyperparameters default to None so per-architecture
+    # presets (see transliteration.models.presets) fill them in.
+    parser.add_argument("--emb-dim", type=int, default=None)
+    parser.add_argument("--hidden-dim", type=int, default=None)
+    parser.add_argument("--d-model", type=int, default=None)
+    parser.add_argument("--nhead", type=int, default=None)
+    parser.add_argument("--num-layers", type=int, default=None)
+    parser.add_argument("--dim-ff", type=int, default=None)
+    parser.add_argument(
+        "--cell-type", type=str, default=None, choices=["lstm", "gru", "rnn"]
+    )
+    parser.add_argument(
+        "--bidirectional", action=argparse.BooleanOptionalAction, default=None
+    )
+    parser.add_argument("--dropout", type=float, default=None)
+    parser.add_argument(
+        "--beam-size", type=int, default=4, help="Beam size (1=greedy)"
+    )
     parser.add_argument("--interactive", action="store_true", help="Interactive mode")
     args = parser.parse_args()
 
@@ -104,10 +151,9 @@ def main():
     src_vocab, tgt_vocab = build_vocab(train_pairs + dev_pairs)
     print(f"Source vocab: {len(src_vocab)}  Target vocab: {len(tgt_vocab)}")
 
-    # Build model and load checkpoint
+    # Build model and load checkpoint (raw or Lightning envelope).
     model = build_model(args, src_vocab, tgt_vocab, device)
-    state = torch.load(args.checkpoint, map_location=device)
-    model.load_state_dict(state)
+    load_model_state_dict(model, args.checkpoint, map_location=device)
     print(f"Loaded checkpoint: {args.checkpoint}")
 
     if args.interactive:
@@ -117,10 +163,11 @@ def main():
                 src = input("\n> ").strip()
                 if not src:
                     continue
-                if args.beam_size > 1:
-                    pred = beam_search_decode(model, src, src_vocab, tgt_vocab, device, args.beam_size)
-                else:
-                    pred = greedy_decode(model, src, src_vocab, tgt_vocab, device)
+                pred, fell_back = decode_with_fallback(
+                    model, src, src_vocab, tgt_vocab, device, args.beam_size
+                )
+                if fell_back:
+                    print("  (beam search unavailable for Transformer; used greedy)")
                 print(f"  → {pred}")
             except (KeyboardInterrupt, EOFError):
                 break
@@ -128,8 +175,10 @@ def main():
 
     # Batch evaluation on test set
     test_dataset = TransliterationDataset(test_pairs, src_vocab, tgt_vocab)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False,
-                             collate_fn=lambda b: collate_fn(b, pad_idx=src_vocab.pad_idx))
+    test_loader = DataLoader(
+        test_dataset, batch_size=args.batch_size, shuffle=False,
+        collate_fn=lambda b: collate_fn(b, pad_idx=src_vocab.pad_idx),
+    )
 
     preds, targets = [], []
     for src_batch, tgt_batch, src_lens in tqdm(test_loader, desc="Evaluating"):
@@ -142,16 +191,15 @@ def main():
             tgt_ids = tgt_batch[i].tolist()
             tgt_text = tgt_vocab.decode(tgt_ids)
 
-            if args.beam_size > 1:
-                pred = beam_search_decode(model, src_text, src_vocab, tgt_vocab, device, args.beam_size)
-            else:
-                pred = greedy_decode(model, src_text, src_vocab, tgt_vocab, device)
+            pred, _ = decode_with_fallback(
+                model, src_text, src_vocab, tgt_vocab, device, args.beam_size
+            )
 
             preds.append(pred)
             targets.append(tgt_text)
 
     metrics = compute_all_metrics(preds, targets)
-    print(f"\nTest Metrics:")
+    print("\nTest Metrics:")
     print(f"  Word Accuracy:  {metrics['word_accuracy']:.4f} ({metrics['word_accuracy']*100:.2f}%)")
     print(f"  Char Accuracy:  {metrics['char_accuracy']:.4f} ({metrics['char_accuracy']*100:.2f}%)")
     print(f"  BLEU:           {metrics['bleu']:.4f}")
@@ -159,8 +207,10 @@ def main():
     # Show some examples
     print("\nSample predictions:")
     for i in range(min(10, len(preds))):
-        status = "✓" if preds[i] == targets[i] else "✗"
-        print(f"  {status} {preds[i]:20s} | {targets[i]}")
+        status = "ok" if preds[i] == targets[i] else "XX"
+        pred_str = preds[i][:20]
+        target_str = targets[i][:20]
+        print(f"  [{status}] {pred_str:20s} | {target_str}")
 
 
 if __name__ == "__main__":

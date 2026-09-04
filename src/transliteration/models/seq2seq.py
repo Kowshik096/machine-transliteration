@@ -1,7 +1,7 @@
 """RNN-based Seq2Seq model without attention (baseline)."""
 
 import random
-from typing import Tuple, Union
+from typing import Optional, Union
 
 import torch
 import torch.nn as nn
@@ -40,8 +40,8 @@ class EncoderRNN(nn.Module):
         )
 
     def forward(
-        self, src: torch.Tensor, src_lens: torch.Tensor = None
-    ) -> Tuple[torch.Tensor, Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]]:
+        self, src: torch.Tensor, src_lens: Optional[torch.Tensor] = None
+    ) -> tuple[torch.Tensor, Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]]:
         embedded = self.embedding(src)
         if src_lens is not None:
             packed = nn.utils.rnn.pack_padded_sequence(
@@ -82,8 +82,8 @@ class DecoderRNN(nn.Module):
     def forward(
         self,
         input_step: torch.Tensor,
-        hidden: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
-    ) -> Tuple[torch.Tensor, Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]]:
+        hidden: Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]],
+    ) -> tuple[torch.Tensor, Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]]:
         emb = self.embedding(input_step).unsqueeze(1)
         output, hidden = self.rnn(emb, hidden)
         logits = self.fc_out(output.squeeze(1))
@@ -114,8 +114,8 @@ class Seq2Seq(nn.Module):
         return h
 
     def _init_decoder_hidden_from_encoder(
-        self, enc_hidden: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        self, enc_hidden: Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]
+    ) -> Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         if isinstance(enc_hidden, tuple):  # LSTM: (h, c)
             h, c = enc_hidden
             return (self._concat_directions(h), self._concat_directions(c))
@@ -125,7 +125,7 @@ class Seq2Seq(nn.Module):
         self,
         src: torch.Tensor,
         trg: torch.Tensor,
-        src_lens: torch.Tensor = None,
+        src_lens: Optional[torch.Tensor] = None,
         teacher_forcing_ratio: float = 0.5,
     ) -> torch.Tensor:
         batch_size = src.size(0)

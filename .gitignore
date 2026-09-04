@@ -1,5 +1,6 @@
 # Data (regenerable via convert_aksharantar.py)
-data/
+# NOTE: leading slash restricts this to the project-level data/ directory.
+/data/
 *.zip
 
 # Model artifacts
@@ -10,6 +11,10 @@ checkpoints/
 # Python
 __pycache__/
 *.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
 .ipynb_checkpoints/
 
 # Experiment tracking

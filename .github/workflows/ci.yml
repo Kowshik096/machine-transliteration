@@ -21,8 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install ruff pytest
+          pip install -e ".[dev]"
 
       - name: Lint with ruff
         run: ruff check src/ scripts/ app.py convert_aksharantar.py
@@ -34,8 +33,5 @@ jobs:
           python -c "from transliteration.data import TransliterationDataset, build_vocab; print('Data OK')"
           python -c "from transliteration.utils import word_accuracy, greedy_decode; print('Utils OK')"
 
-      - name: Run unit tests (placeholder)
-        run: |
-          # Add actual tests here when available
-          echo "No tests yet - add pytest tests in tests/"
-          # pytest tests/ -v
+      - name: Run unit tests
+        run: pytest tests/ -v

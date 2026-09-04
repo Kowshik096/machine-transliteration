@@ -18,7 +18,6 @@ import io
 import os
 import zipfile
 
-
 LANG_MAP = {
     "hi": {"train": "hin_train.csv", "dev": "hin_valid.csv", "test": "hin_test.csv"},
     "te": {"train": "tel_train.csv", "dev": "tel_valid.csv", "test": "tel_test.csv"},
@@ -55,7 +54,10 @@ def main():
     parser = argparse.ArgumentParser(description="Convert Aksharantar to Dakshina TSV format")
     parser.add_argument("--zip", default="aksharantar_sampled.zip", help="Path to aksharantar zip")
     parser.add_argument("--outdir", default="data", help="Output directory for TSVs")
-    parser.add_argument("--lang", default="te", choices=["hi", "te"], help="Language: hi (Hindi) or te (Telugu)")
+    parser.add_argument(
+        "--lang", default="te", choices=["hi", "te"],
+        help="Language: hi (Hindi) or te (Telugu)",
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.zip):

@@ -1,7 +1,6 @@
 """Transformer encoder-decoder for character-level transliteration."""
 
 import math
-from typing import Tuple
 
 import torch
 import torch.nn as nn
@@ -23,7 +22,8 @@ class PositionalEncoding(nn.Module):
         self.register_buffer("pe", pe)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x + self.pe[:, : x.size(1)]
+        pe = self.pe
+        return x + pe[:, : x.size(1)]  # type: ignore[index]
 
 
 class TransformerSeq2Seq(nn.Module):

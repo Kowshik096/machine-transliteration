@@ -1,7 +1,7 @@
 """Seq2Seq with Bahdanau additive attention."""
 
 import random
-from typing import Tuple, Union
+from typing import Union
 
 import torch
 import torch.nn as nn
@@ -40,7 +40,7 @@ class Encoder(nn.Module):
 
     def forward(
         self, src: torch.Tensor, src_lens: torch.Tensor
-    ) -> Tuple[torch.Tensor, Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]]:
+    ) -> tuple[torch.Tensor, Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]]:
         embedded = self.embedding(src)
         packed = nn.utils.rnn.pack_padded_sequence(
             embedded, src_lens.cpu(), batch_first=True, enforce_sorted=False
@@ -66,7 +66,7 @@ class BahdanauAttention(nn.Module):
         enc_outputs: torch.Tensor,
         dec_hidden: torch.Tensor,
         src_mask: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         # enc_outputs: (batch, src_len, enc_dim)
         # dec_hidden: (batch, dec_dim)
         enc_proj = self.W_enc(enc_outputs)
@@ -111,10 +111,10 @@ class Decoder(nn.Module):
     def forward(
         self,
         input_tok: torch.Tensor,
-        hidden: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        hidden: Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]],
         enc_outputs: torch.Tensor,
         src_mask: torch.Tensor,
-    ) -> Tuple[torch.Tensor, Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]], torch.Tensor]:
+    ) -> tuple[torch.Tensor, Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]], torch.Tensor]:
         dec_hidden = hidden[0][-1] if isinstance(hidden, tuple) else hidden[-1]
         context, attn_weights = self.attention(enc_outputs, dec_hidden, src_mask)
         emb = self.embedding(input_tok).unsqueeze(1)
@@ -140,8 +140,8 @@ class AttentionSeq2Seq(nn.Module):
         self.src_pad_idx = src_pad_idx
 
     def _init_decoder_hidden(
-        self, enc_hidden: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        self, enc_hidden: Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]
+    ) -> Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         num_layers = self.encoder.num_layers
         if self.encoder.bidirectional:
             if isinstance(enc_hidden, tuple):
@@ -167,7 +167,9 @@ class AttentionSeq2Seq(nn.Module):
         enc_outputs, enc_hidden = self.encoder(src, src_lens)
         dec_hidden = self._init_decoder_hidden(enc_hidden)
 
-        outputs = torch.zeros(batch_size, tgt_len, self.decoder.fc_out.out_features, device=src.device)
+        outputs = torch.zeros(
+            batch_size, tgt_len, self.decoder.fc_out.out_features, device=src.device
+        )
         input_tok = tgt[:, 0]  # <SOS>
 
         for t in range(1, tgt_len):

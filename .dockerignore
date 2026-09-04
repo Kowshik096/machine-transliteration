@@ -1,0 +1,19 @@
+# Keep build context small; data/checkpoints are mounted, not baked in.
+.git/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+data/
+*.zip
+*.pt
+*.ckpt
+checkpoints/
+_results_unzipped/
+archive/
+wandb/
+kaggle_output/
+.env
+.venv/
+venv/

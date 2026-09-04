@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "transliteration"
+version = "0.1.0"
+description = "Character-level seq2seq models for transliteration (Latin -> Indic script)."
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.24",
+    "torch>=2.0",
+    "wandb>=0.15,<1",
+    "nltk>=3.8,<4",
+    "tqdm>=4.66,<5",
+    "jupyter>=1.0,<2",
+    "pytorch-lightning>=2.0,<3",
+    "streamlit>=1.30",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pytest",
+    "mypy",
+    "streamlit",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "W"]
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["transliteration"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+show_error_codes = true

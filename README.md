@@ -18,8 +18,10 @@ All three notebooks use the same **Aksharantar Telugu** train/dev/test splits (5
 
 ### 1. Install dependencies
 
+Install the package in editable mode (also installs all dependencies and the `dev` extras for `ruff`/`pytest`):
+
 ```bash
-pip install -r requirements.txt
+pip install -e ".[dev]"
 ```
 
 For the RNN baseline notebook, you will also need PyTorch Lightning:
@@ -30,7 +32,16 @@ pip install pytorch-lightning
 
 ### 2. Prepare the dataset
 
-**Option A — Convert the included Aksharantar zip (recommended, Telugu default):**
+Tracked source (`src/`, `scripts/`, `app.py`, `convert_aksharantar.py`,
+`pyproject.toml`) is sufficient for a clean clone. Generated/external
+artifacts are intentionally NOT committed:
+
+- `data/*.tsv` — generated via `convert_aksharantar.py` (ignored `/data/`).
+- `aksharantar_sampled.zip` — raw Aksharantar export, obtain separately (ignored `*.zip`).
+- `*_best.pt` / `*_best.ckpt` — trained weights, obtain separately (ignored `*.pt`/`*.ckpt`).
+- `results.zip`, `_results_unzipped/`, `wandb/`, `archive/` — experiment outputs.
+
+**Option A — Convert the Aksharantar zip (recommended, Telugu default):**
 
 ```bash
 python convert_aksharantar.py --zip aksharantar_sampled.zip --outdir data --lang te
@@ -125,23 +136,48 @@ Notes (Hindi):
 - Attention model: bidirectional LSTM encoder + Bahdanau additive-attention decoder, 1.36M params (`seq2seq_pytorch_attention_tested.ipynb`).
 - Transformer: d_model=128, 4 heads, 3 layers, 1.02M params (`seq2seq_transformer_tested.ipynb`).
 
-> All 3 Telugu runs + beam search (k=4) + heatmaps completed via `seq2seq_evals_tested.ipynb` — optional next is `FRESHER_GUIDE.md:77` dropout tuning / additional languages.
+> All 3 Telugu runs + beam search (k=4) + heatmaps completed via `seq2seq_evals_tested.ipynb` — optional next is dropout tuning / additional languages.
 
 ## Repository Structure
 
 ```
 ├── README.md
 ├── SKILLS.md                                # concepts & interview prep notes
-├── requirements.txt
+├── pyproject.toml                           # build system, deps, ruff config
+├── requirements.txt                         # pinned runtime deps
 ├── convert_aksharantar.py                   # builds data/*.tsv from aksharantar_sampled.zip
 ├── aksharantar_sampled.zip                  # raw multi-language data (not committed)
 ├── data/                                    # generated TSVs (not committed, `te.*` default)
 │   ├── te.translit.sampled.train.tsv   # Telugu (51k/4k/4k)
 │   ├── te.translit.sampled.dev.tsv
 │   └── te.translit.sampled.test.tsv
+├── src/transliteration/                     # package source
+│   ├── data/        # vocab, dataset, collate
+│   ├── models/      # seq2seq, attention, transformer
+│   └── utils/       # decode (greedy/beam), metrics
+├── scripts/
+│   ├── train.py     # training entry point (argparse)
+│   └── eval.py      # evaluation entry point (argparse)
+├── app.py           # Streamlit demo
+├── tests/           # pytest tests
 ├── seq2seq_pytorch_without_attention.ipynb  # RNN baseline + W&B sweeps
 ├── seq2seq_pytorch_attention.ipynb          # BiRNN encoder + Bahdanau attention
 ├── seq2seq_transformer.ipynb                # Transformer encoder-decoder
 ├── *_tested.ipynb                           # copies with stored outputs of full runs
 └── *.pt                                     # trained checkpoints (not committed)
 ```
+
+## Checkpoints & Architecture Presets
+
+Each architecture uses its own preset (see `src/transliteration/models/presets.py`);
+do not share one universal config:
+
+- `rnn` (baseline `baseline_best.ckpt`, Lightning envelope): 2-layer uni LSTM, emb 64, hidden 256, dropout 0.2.
+- `attention` (`attention_best.pt`, raw state_dict): 1-layer BiLSTM, emb 64, hidden 256, dropout 0.1.
+- `transformer` (`transformer_best.pt`, raw state_dict): d_model 128, 4 heads, 3 layers, dim_ff 256, dropout 0.1.
+
+`app.py`, `scripts/train.py`, and `scripts/eval.py` resolve defaults from these
+presets. The Transformer always uses autoregressive greedy decoding; requesting
+`beam_size > 1` falls back to greedy with an explicit message (beam search
+remains RNN-only). The baseline loader accepts both raw state_dicts and
+Lightning `{"state_dict": {"model.*": ...}}` envelopes.

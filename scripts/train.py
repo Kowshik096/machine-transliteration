@@ -2,10 +2,8 @@
 """Training script for transliteration models."""
 
 import argparse
-import os
 import random
 from pathlib import Path
-from typing import List, Tuple
 
 import torch
 import torch.nn as nn
@@ -13,13 +11,13 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
-from transliteration.data.vocab import build_vocab, Vocab
 from transliteration.data.dataset import TransliterationDataset, collate_fn
-from transliteration.models.seq2seq import Seq2Seq, EncoderRNN, DecoderRNN
-from transliteration.models.attention import AttentionSeq2Seq, Encoder, Decoder
+from transliteration.data.vocab import Vocab, build_vocab
+from transliteration.models.attention import AttentionSeq2Seq, Decoder, Encoder
+from transliteration.models.presets import ARCH_PRESETS, get_preset
+from transliteration.models.seq2seq import DecoderRNN, EncoderRNN, Seq2Seq
 from transliteration.models.transformer import TransformerSeq2Seq
-from transliteration.utils.metrics import compute_all_metrics
-from transliteration.utils.decode import greedy_decode
+from transliteration.utils.checkpoints import safe_torch_load
 
 
 def set_seed(seed: int = 42):
@@ -28,14 +26,14 @@ def set_seed(seed: int = 42):
     torch.cuda.manual_seed_all(seed)
 
 
-def load_pairs_from_tsv(data_dir: Path, lang: str = "te") -> Tuple[List, List, List]:
+def load_pairs_from_tsv(data_dir: Path, lang: str = "te") -> tuple[list, list, list]:
     """Load train/dev/test pairs from TSV files."""
-    splits = {"train": [], "dev": [], "test": []}
+    splits: dict[str, list] = {"train": [], "dev": [], "test": []}
     for split in ["train", "dev", "test"]:
         fname = data_dir / f"{lang}.translit.sampled.{split}.tsv"
         if not fname.exists():
             raise FileNotFoundError(f"Dataset file not found: {fname}")
-        with open(fname, "r", encoding="utf-8") as f:
+        with open(fname, encoding="utf-8") as f:
             for line in f:
                 parts = line.strip().split("\t")
                 if len(parts) >= 3:
@@ -46,41 +44,63 @@ def load_pairs_from_tsv(data_dir: Path, lang: str = "te") -> Tuple[List, List, L
 
 
 def build_model(args, src_vocab: Vocab, tgt_vocab: Vocab, device: torch.device):
-    """Build model based on architecture."""
+    """Build model based on architecture, starting from explicit presets."""
+    preset = get_preset(args.arch)
+    emb_dim = args.emb_dim if args.emb_dim is not None else preset.get("emb_dim", 64)
+    hidden_dim = (
+        args.hidden_dim if args.hidden_dim is not None else preset.get("hidden_dim", 256)
+    )
+    d_model = args.d_model if args.d_model is not None else preset.get("d_model", 128)
+    nhead = args.nhead if args.nhead is not None else preset.get("nhead", 4)
+    num_layers = (
+        args.num_layers if args.num_layers is not None else preset.get("num_layers", 1)
+    )
+    dim_ff = args.dim_ff if args.dim_ff is not None else preset.get("dim_ff", 256)
+    cell_type = (
+        args.cell_type if args.cell_type is not None else preset.get("cell_type", "lstm")
+    )
+    bidirectional = (
+        args.bidirectional
+        if args.bidirectional is not None
+        else preset.get("bidirectional", True)
+    )
+    dropout = args.dropout if args.dropout is not None else preset.get("dropout", 0.1)
     if args.arch == "rnn":
-        encoder = EncoderRNN(
-            len(src_vocab), args.emb_dim, args.hidden_dim,
-            num_layers=args.num_layers, cell_type=args.cell_type,
-            bidirectional=args.bidirectional, dropout=args.dropout,
+        rnn_encoder = EncoderRNN(
+            len(src_vocab), emb_dim, hidden_dim,
+            num_layers=num_layers, cell_type=cell_type,
+            bidirectional=bidirectional, dropout=dropout,
         )
-        decoder = DecoderRNN(
-            len(tgt_vocab), args.emb_dim, args.hidden_dim,
-            num_layers=args.num_layers, cell_type=args.cell_type,
-            dropout=args.dropout,
+        rnn_decoder = DecoderRNN(
+            len(tgt_vocab), emb_dim, hidden_dim,
+            num_layers=num_layers, cell_type=cell_type,
+            dropout=dropout,
         )
-        model = Seq2Seq(encoder, decoder, device)
-    elif args.arch == "attention":
-        encoder = Encoder(
-            len(src_vocab), args.emb_dim, args.hidden_dim,
-            num_layers=args.num_layers, cell_type=args.cell_type,
-            bidirectional=True, dropout=args.dropout,
+        return Seq2Seq(rnn_encoder, rnn_decoder, device).to(device)
+    if args.arch == "attention":
+        attn_encoder = Encoder(
+            len(src_vocab), emb_dim, hidden_dim,
+            num_layers=num_layers, cell_type=cell_type,
+            bidirectional=True, dropout=dropout,
         )
-        decoder = Decoder(
-            len(tgt_vocab), args.emb_dim, args.hidden_dim,
-            enc_dim=args.hidden_dim, num_layers=args.num_layers,
-            cell_type=args.cell_type, dropout=args.dropout,
+        attn_decoder = Decoder(
+            len(tgt_vocab), emb_dim, hidden_dim,
+            enc_dim=hidden_dim, num_layers=num_layers,
+            cell_type=cell_type, dropout=dropout,
         )
-        model = AttentionSeq2Seq(encoder, decoder, src_pad_idx=src_vocab.pad_idx)
-    elif args.arch == "transformer":
-        model = TransformerSeq2Seq(
+        return AttentionSeq2Seq(
+            attn_encoder, attn_decoder, src_pad_idx=src_vocab.pad_idx
+        ).to(device)
+    if args.arch == "transformer":
+        return TransformerSeq2Seq(
             len(src_vocab), len(tgt_vocab),
-            d_model=args.d_model, nhead=args.nhead,
-            num_layers=args.num_layers, dim_ff=args.dim_ff,
-            dropout=args.dropout, pad_idx=src_vocab.pad_idx,
-        )
-    else:
-        raise ValueError(f"Unknown architecture: {args.arch}")
-    return model.to(device)
+            d_model=d_model, nhead=nhead,
+            num_layers=num_layers, dim_ff=dim_ff,
+            dropout=dropout, pad_idx=src_vocab.pad_idx,
+        ).to(device)
+    raise ValueError(
+        f"Unknown architecture: {args.arch}. Expected one of {sorted(ARCH_PRESETS)}."
+    )
 
 
 def train_epoch(model, loader, optimizer, criterion, device, teacher_forcing, clip=1.0):
@@ -126,21 +146,34 @@ def evaluate(model, loader, criterion, device, teacher_forcing):
 
 def main():
     parser = argparse.ArgumentParser(description="Train transliteration model")
-    parser.add_argument("--data-dir", type=str, default="data", help="Data directory with TSV files")
-    parser.add_argument("--lang", type=str, default="te", choices=["te", "hi"], help="Language code")
-    parser.add_argument("--arch", type=str, default="attention", choices=["rnn", "attention", "transformer"])
+    parser.add_argument(
+        "--data-dir", type=str, default="data", help="Data directory with TSV files"
+    )
+    parser.add_argument(
+        "--lang", type=str, default="te", choices=["te", "hi"], help="Language code"
+    )
+    parser.add_argument(
+        "--arch", type=str, default="attention",
+        choices=["rnn", "attention", "transformer"],
+    )
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--emb-dim", type=int, default=64)
-    parser.add_argument("--hidden-dim", type=int, default=256)
-    parser.add_argument("--d-model", type=int, default=128)
-    parser.add_argument("--nhead", type=int, default=4)
-    parser.add_argument("--num-layers", type=int, default=1)
-    parser.add_argument("--dim-ff", type=int, default=256)
-    parser.add_argument("--cell-type", type=str, default="lstm", choices=["lstm", "gru", "rnn"])
-    parser.add_argument("--bidirectional", action="store_true", default=True)
-    parser.add_argument("--dropout", type=float, default=0.1)
+    # Arch-specific hyperparameters default to None so per-architecture
+    # presets (see transliteration.models.presets) fill them in.
+    parser.add_argument("--emb-dim", type=int, default=None)
+    parser.add_argument("--hidden-dim", type=int, default=None)
+    parser.add_argument("--d-model", type=int, default=None)
+    parser.add_argument("--nhead", type=int, default=None)
+    parser.add_argument("--num-layers", type=int, default=None)
+    parser.add_argument("--dim-ff", type=int, default=None)
+    parser.add_argument(
+        "--cell-type", type=str, default=None, choices=["lstm", "gru", "rnn"]
+    )
+    parser.add_argument(
+        "--bidirectional", action=argparse.BooleanOptionalAction, default=None
+    )
+    parser.add_argument("--dropout", type=float, default=None)
     parser.add_argument("--teacher-forcing", type=float, default=0.5)
     parser.add_argument("--save-path", type=str, default="checkpoints/best.pt")
     parser.add_argument("--seed", type=int, default=42)
@@ -165,12 +198,18 @@ def main():
     dev_dataset = TransliterationDataset(dev_pairs, src_vocab, tgt_vocab)
     test_dataset = TransliterationDataset(test_pairs, src_vocab, tgt_vocab)
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
-                              collate_fn=lambda b: collate_fn(b, pad_idx=src_vocab.pad_idx))
-    dev_loader = DataLoader(dev_dataset, batch_size=args.batch_size, shuffle=False,
-                            collate_fn=lambda b: collate_fn(b, pad_idx=src_vocab.pad_idx))
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False,
-                             collate_fn=lambda b: collate_fn(b, pad_idx=src_vocab.pad_idx))
+    train_loader = DataLoader(
+        train_dataset, batch_size=args.batch_size, shuffle=True,
+        collate_fn=lambda b: collate_fn(b, pad_idx=src_vocab.pad_idx),
+    )
+    dev_loader = DataLoader(
+        dev_dataset, batch_size=args.batch_size, shuffle=False,
+        collate_fn=lambda b: collate_fn(b, pad_idx=src_vocab.pad_idx),
+    )
+    test_loader = DataLoader(
+        test_dataset, batch_size=args.batch_size, shuffle=False,
+        collate_fn=lambda b: collate_fn(b, pad_idx=src_vocab.pad_idx),
+    )
 
     # Build model
     model = build_model(args, src_vocab, tgt_vocab, device)
@@ -184,9 +223,14 @@ def main():
     Path(args.save_path).parent.mkdir(parents=True, exist_ok=True)
 
     for epoch in range(1, args.epochs + 1):
-        train_loss = train_epoch(model, train_loader, optimizer, criterion, device, args.teacher_forcing)
+        train_loss = train_epoch(
+            model, train_loader, optimizer, criterion, device, args.teacher_forcing
+        )
         val_loss = evaluate(model, dev_loader, criterion, device, 0.0)
-        print(f"Epoch {epoch:02d}/{args.epochs} | Train: {train_loss:.4f} | Val: {val_loss:.4f}")
+        print(
+            f"Epoch {epoch:02d}/{args.epochs} | "
+            f"Train: {train_loss:.4f} | Val: {val_loss:.4f}"
+        )
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -194,7 +238,7 @@ def main():
             print(f"  Saved best model to {args.save_path}")
 
     # Final evaluation on test
-    model.load_state_dict(torch.load(args.save_path, map_location=device))
+    model.load_state_dict(safe_torch_load(args.save_path, map_location=device))
     test_loss = evaluate(model, test_loader, criterion, device, 0.0)
     print(f"Test Loss: {test_loss:.4f}")
 

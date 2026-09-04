@@ -1,11 +1,10 @@
 """Evaluation metrics for transliteration."""
 
-from typing import List
 
-from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
 
 
-def word_accuracy(preds: List[str], targets: List[str]) -> float:
+def word_accuracy(preds: list[str], targets: list[str]) -> float:
     """Exact word match accuracy."""
     if not preds:
         return 0.0
@@ -13,7 +12,7 @@ def word_accuracy(preds: List[str], targets: List[str]) -> float:
     return correct / len(preds)
 
 
-def char_accuracy(preds: List[str], targets: List[str]) -> float:
+def char_accuracy(preds: list[str], targets: list[str]) -> float:
     """Character-level accuracy (position-wise up to min length)."""
     if not preds:
         return 0.0
@@ -26,7 +25,7 @@ def char_accuracy(preds: List[str], targets: List[str]) -> float:
     return total_correct / total_chars if total_chars > 0 else 0.0
 
 
-def bleu_score(preds: List[str], targets: List[str]) -> float:
+def bleu_score(preds: list[str], targets: list[str]) -> float:
     """Sentence-level BLEU with smoothing on character n-grams."""
     if not preds:
         return 0.0
@@ -40,7 +39,7 @@ def bleu_score(preds: List[str], targets: List[str]) -> float:
 
 
 def compute_all_metrics(
-    preds: List[str], targets: List[str]
+    preds: list[str], targets: list[str]
 ) -> dict:
     """Compute all metrics at once."""
     return {

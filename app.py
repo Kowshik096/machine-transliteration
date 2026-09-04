@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 """Streamlit demo for transliteration."""
 
-import argparse
 from pathlib import Path
 
 import streamlit as st
 import torch
 
-from transliteration.data.vocab import build_vocab, Vocab
-from transliteration.data.dataset import TransliterationDataset, collate_fn
-from transliteration.models.seq2seq import Seq2Seq, EncoderRNN, DecoderRNN
-from transliteration.models.attention import AttentionSeq2Seq, Encoder, Decoder
+from transliteration.data.vocab import build_vocab
+from transliteration.models.attention import AttentionSeq2Seq, Decoder, Encoder
+from transliteration.models.presets import ARCH_PRESETS, get_preset
+from transliteration.models.seq2seq import DecoderRNN, EncoderRNN, Seq2Seq
 from transliteration.models.transformer import TransformerSeq2Seq
-from transliteration.utils.decode import greedy_decode, beam_search_decode
-
+from transliteration.utils.checkpoints import load_model_state_dict
+from transliteration.utils.decode import decode_with_fallback
 
 # Page config
 st.set_page_config(
@@ -33,11 +32,11 @@ def load_model_and_vocab(checkpoint_path: str, arch: str, lang: str, data_dir: s
 
     # Load data for vocab
     data_path = Path(data_dir)
-    pairs = {"train": [], "dev": [], "test": []}
+    pairs: dict[str, list] = {"train": [], "dev": [], "test": []}
     for split in ["train", "dev"]:
         fname = data_path / f"{lang}.translit.sampled.{split}.tsv"
         if fname.exists():
-            with open(fname, "r", encoding="utf-8") as f:
+            with open(fname, encoding="utf-8") as f:
                 for line in f:
                     parts = line.strip().split("\t")
                     if len(parts) >= 3:
@@ -47,46 +46,60 @@ def load_model_and_vocab(checkpoint_path: str, arch: str, lang: str, data_dir: s
 
     src_vocab, tgt_vocab = build_vocab(pairs["train"] + pairs["dev"])
 
-    # Build model
+    # Build model from explicit per-architecture presets. Caller-provided
+    # hyperparameters override the preset so retrained variants still load.
+    app_model: torch.nn.Module
     if arch == "rnn":
-        encoder = EncoderRNN(
+        rnn_encoder = EncoderRNN(
             len(src_vocab), emb_dim, hidden_dim,
             num_layers=num_layers, cell_type=cell_type,
             bidirectional=bidirectional, dropout=dropout,
         )
-        decoder = DecoderRNN(
+        rnn_decoder = DecoderRNN(
             len(tgt_vocab), emb_dim, hidden_dim,
             num_layers=num_layers, cell_type=cell_type,
             dropout=dropout,
         )
-        model = Seq2Seq(encoder, decoder, device)
+        app_model = Seq2Seq(rnn_encoder, rnn_decoder, device)
     elif arch == "attention":
-        encoder = Encoder(
+        attn_encoder = Encoder(
             len(src_vocab), emb_dim, hidden_dim,
             num_layers=num_layers, cell_type=cell_type,
             bidirectional=True, dropout=dropout,
         )
-        decoder = Decoder(
+        attn_decoder = Decoder(
             len(tgt_vocab), emb_dim, hidden_dim,
             enc_dim=hidden_dim, num_layers=num_layers,
             cell_type=cell_type, dropout=dropout,
         )
-        model = AttentionSeq2Seq(encoder, decoder, src_pad_idx=src_vocab.pad_idx)
+        app_model = AttentionSeq2Seq(
+            attn_encoder, attn_decoder, src_pad_idx=src_vocab.pad_idx
+        )
     elif arch == "transformer":
-        model = TransformerSeq2Seq(
+        app_model = TransformerSeq2Seq(
             len(src_vocab), len(tgt_vocab),
             d_model=d_model, nhead=nhead,
             num_layers=num_layers, dim_ff=dim_ff,
             dropout=dropout, pad_idx=src_vocab.pad_idx,
         )
     else:
-        raise ValueError(f"Unknown architecture: {arch}")
+        raise ValueError(f"Unknown architecture: {arch}. Expected one of {sorted(ARCH_PRESETS)}.")
 
-    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
-    model.to(device)
-    model.eval()
+    # Handles both raw state_dicts (*_best.pt) and Lightning envelopes
+    # (baseline_best.ckpt with model.* prefix).
+    load_model_state_dict(app_model, checkpoint_path, map_location=device)
+    app_model.to(device)
+    app_model.eval()
 
-    return model, src_vocab, tgt_vocab, device
+    return app_model, src_vocab, tgt_vocab, device
+
+
+def preset_defaults(arch: str) -> dict:
+    """Return sidebar defaults matching the trained checkpoint for arch."""
+    try:
+        return get_preset(arch)
+    except ValueError:
+        return get_preset("attention")
 
 
 def main():
@@ -96,24 +109,65 @@ def main():
     # Sidebar config
     with st.sidebar:
         st.header("Model Config")
-        checkpoint = st.text_input("Checkpoint path", "attention_best.pt")
         arch = st.selectbox("Architecture", ["attention", "rnn", "transformer"], index=0)
+        preset = preset_defaults(arch)
+        # Checkpoint default matches the selected architecture's trained file.
+        default_ckpt = {
+            "attention": "attention_best.pt",
+            "rnn": "baseline_best.ckpt",
+            "transformer": "transformer_best.pt",
+        }[arch]
+        checkpoint = st.text_input("Checkpoint path", default_ckpt)
         lang = st.selectbox("Language", ["te", "hi"], index=0)
         data_dir = st.text_input("Data directory", "data")
 
         st.divider()
         st.subheader("Hyperparameters (must match checkpoint)")
-        emb_dim = st.number_input("Embedding dim", value=64, min_value=16, max_value=512)
-        hidden_dim = st.number_input("Hidden dim", value=256, min_value=16, max_value=512)
-        d_model = st.number_input("Transformer d_model", value=128, min_value=32, max_value=512)
-        nhead = st.number_input("Attention heads", value=4, min_value=1, max_value=16)
-        num_layers = st.number_input("Layers", value=1, min_value=1, max_value=6)
-        dim_ff = st.number_input("FF dim", value=256, min_value=64, max_value=2048)
-        cell_type = st.selectbox("Cell type", ["lstm", "gru", "rnn"], index=0)
-        bidirectional = st.checkbox("Bidirectional encoder", value=True)
-        dropout = st.slider("Dropout", 0.0, 0.5, 0.1, 0.05)
+        st.caption(f"Defaults shown are the {arch} preset: {preset}")
+        emb_dim = st.number_input(
+            "Embedding dim",
+            value=int(preset.get("emb_dim", 64)),
+            min_value=16, max_value=512,
+        )
+        hidden_dim = st.number_input(
+            "Hidden dim",
+            value=int(preset.get("hidden_dim", 256)),
+            min_value=16, max_value=512,
+        )
+        d_model = st.number_input(
+            "Transformer d_model",
+            value=int(preset.get("d_model", 128)),
+            min_value=32, max_value=512,
+        )
+        nhead = st.number_input(
+            "Attention heads",
+            value=int(preset.get("nhead", 4)),
+            min_value=1, max_value=16,
+        )
+        num_layers = st.number_input(
+            "Layers",
+            value=int(preset.get("num_layers", 1 if arch != "transformer" else 3)),
+            min_value=1, max_value=6,
+        )
+        dim_ff = st.number_input(
+            "FF dim", value=int(preset.get("dim_ff", 256)),
+            min_value=64, max_value=2048,
+        )
+        cell_type = st.selectbox(
+            "Cell type", ["lstm", "gru", "rnn"],
+            index=["lstm", "gru", "rnn"].index(str(preset.get("cell_type", "lstm"))),
+        )
+        bidirectional = st.checkbox(
+            "Bidirectional encoder",
+            value=bool(preset.get("bidirectional", True)),
+        )
+        dropout = st.slider(
+            "Dropout", 0.0, 0.5, float(preset.get("dropout", 0.1)), 0.05,
+        )
 
         beam_size = st.slider("Beam size", 1, 10, 4)
+        if arch == "transformer":
+            st.info("Transformer uses greedy decoding; beam_size > 1 falls back to greedy.")
         max_len = st.number_input("Max output length", value=64, min_value=16, max_value=256)
 
     # Load model
@@ -130,14 +184,23 @@ def main():
 
     # Input
     st.subheader("Input (Roman)")
-    user_input = st.text_area("Type Telugu in Roman script", placeholder="e.g., namaste, dhanyavaadala, mumbai", height=100)
+    user_input = st.text_area(
+        "Type Telugu in Roman script",
+        placeholder="e.g., namaste, dhanyavaadala, mumbai",
+        height=100,
+    )
 
     if st.button("Transliterate", type="primary", use_container_width=True) and user_input:
         with st.spinner("Generating..."):
-            if beam_size > 1:
-                result = beam_search_decode(model, user_input.strip(), src_vocab, tgt_vocab, device, beam_size, max_len)
-            else:
-                result = greedy_decode(model, user_input.strip(), src_vocab, tgt_vocab, device, max_len)
+            result, fell_back = decode_with_fallback(
+                model, user_input.strip(), src_vocab, tgt_vocab, device,
+                beam_size, max_len,
+            )
+            if fell_back:
+                st.warning(
+                    "Beam search is not implemented for the Transformer; "
+                    "used greedy decoding instead (beam_size=1)."
+                )
 
         st.subheader("Output (Telugu)")
         st.code(result, language=None)
