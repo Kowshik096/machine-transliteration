@@ -12,7 +12,7 @@ This document covers the deep learning concepts, engineering practices, and proj
 3. Transformer                                 → how much does removing recurrence help?
 ```
 
-All three models run on the same **Dakshina Hindi** dataset with identical train/dev/test splits and evaluation metrics.
+All three models run on the same **Aksharantar Telugu** splits (51,200 / 4,096 / 4,096 pairs, Dakshina-format TSVs) with identical evaluation metrics. Hindi remains available via `--lang hi`.
 
 ---
 
@@ -226,12 +226,12 @@ Be prepared to answer these about YOUR implementation:
 
 ---
 
-## Resume Bullet Suggestions
+## Results Summary
 
-After running experiments and filling in real numbers, frame your work as:
+Telugu test set (4,096 words), beam search k=4 (see README for greedy numbers and sources):
 
-> "Benchmarked character-level seq2seq architectures (LSTM, GRU, Bahdanau attention, Transformer) for Hindi transliteration on the Dakshina dataset, achieving X% word accuracy with beam-search decoding."
-
-Or for engineering focus:
-
-> "Built reproducible PyTorch training pipelines with configurable data paths, experiment tracking via W&B, and automated evaluation of word accuracy, character accuracy, and BLEU across three architecture families."
+| Model | Word Acc | Char Acc |
+|---|---|---|
+| BiLSTM + Bahdanau attention | **49.61%** | 82.61% |
+| LSTM baseline (10-trial W&B sweep) | 47.29% | 81.25% |
+| Transformer (d_model 128, 4 heads, 3 layers) | 43.87% | 79.36% |
