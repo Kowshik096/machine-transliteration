@@ -138,6 +138,14 @@ Notes (Hindi):
 
 > All 3 Telugu runs + beam search (k=4) + heatmaps completed via `seq2seq_evals_tested.ipynb` — optional next is dropout tuning / additional languages.
 
+### What I built on top of the Hindi baseline
+
+- **Telugu pipeline:** `convert_aksharantar.py` turns the Aksharantar export into the Dakshina-format splits (51,200 / 4,096 / 4,096).
+- **RNN-variant sweep:** a 10-trial W&B Bayes sweep over 11 hyperparameters, including cell type (LSTM / GRU / vanilla RNN), depth, embedding and hidden sizes, bidirectionality, dropout, learning rate and teacher forcing (`wandb.agent(..., count=10)` in `seq2seq_pytorch_without_attention.ipynb`).
+- **Result:** BiLSTM + Bahdanau attention reaches **49.61%** word accuracy with beam 4, ahead of the LSTM baseline (47.29%, +2.3 points) and the Transformer (43.87%, +5.7 points).
+- **Transformer decoding fix:** inference used to run a single forward pass over a fixed 64-token target, so the model never saw its own predictions and emitted the same character 64 times. `greedy_decode` now decodes autoregressively: it feeds each predicted token back and stops at `<EOS>` (`src/transliteration/utils/decode.py`). `tests/test_step1_regressions.py` pins this with a mock Transformer that records every prefix length it sees.
+- **Engineering:** 40 offline pytest tests (`pytest tests/`), CI running `ruff` and the tests on every push (`.github/workflows/ci.yml`), a Docker image (`Dockerfile`), and a Streamlit demo (`app.py`).
+
 ## Repository Structure
 
 ```
